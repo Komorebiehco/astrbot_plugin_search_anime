@@ -1,0 +1,32 @@
+{
+  "enable_llm_tool": {
+    "description": "启用大模型工具",
+    "hint": "是否在 LLM Function Calling 工具列表中暴露该搜图工具。关闭后大模型将无法发现或调用此工具。",
+    "type": "bool",
+    "default": true
+  },
+  "enable_giftia_mode": {
+    "description": "Giftia 兼容模式",
+    "hint": "开启后提供给大模型的 url 参数描述简化为 'Image hash.'；关闭时（默认）描述为 'Target image HTTP/HTTPS URL or local file path.'。",
+    "type": "bool",
+    "default": false
+  },
+  "enable_llm_only_mode": {
+    "description": "仅返回文本给大模型",
+    "hint": "开启后，大模型调用搜图工具时插件不直接向聊天窗口发送卡片，仅将识别文本返回给大模型由其自行回复；关闭时（默认），插件直接发送富文本卡片，并返回简短完成提示给模型。",
+    "type": "bool",
+    "default": false
+  },
+  "default_limit": {
+    "description": "搜索结果最大返回条数",
+    "hint": "以图搜番/搜插画返回的结果最大候选条数（默认为 3，范围 1-10）。控制指令与大模型工具调用的默认返回数量。",
+    "type": "int",
+    "default": 3
+  },
+  "saucenao_api_key": {
+    "description": "SauceNAO API Key",
+    "hint": "可选。用于 SauceNAO 以图搜插画/来源的官方 API Key。若留空则自动使用网页端 HTML 解析。",
+    "type": "string",
+    "default": ""
+  }
+}
