@@ -1,6 +1,6 @@
 name: astrbot_plugin_search_anime
 display_name: 以图搜番/搜插画
 desc: 基于 trace.moe 和 sauce.moe API 的以图搜番/搜插画插件，支持标准 LLM 工具及指令调用。
-version: v1.0.0
+version: v1.0.1
 author: e.e.
 repo: https://github.com/MatchaSweetPotato-Lab/astrbot_plugin_search_anime
