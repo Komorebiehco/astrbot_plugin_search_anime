@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 import aiohttp
 
 from astrbot.api import logger
@@ -5,6 +7,14 @@ from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Image, Node, Nodes, Plain
 
 from ..utils.image_extractor import resolve_image_bytes
+
+
+def _is_placeholder_url(value: str) -> bool:
+    try:
+        hostname = (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return False
+    return hostname in {"example.com", "www.example.com", "example.org", "example.net"}
 
 
 def _time_convert(t: float | int) -> str:
@@ -82,7 +92,11 @@ async def search_anime_trace_moe(
                             f"trace.moe API error (HTTP {resp.status}): {err_detail}",
                         )
                     data = await resp.json()
-            elif image_url:
+            elif (
+                image_url
+                and image_url.startswith(("http://", "https://"))
+                and not _is_placeholder_url(image_url)
+            ):
                 params["url"] = image_url
                 async with session.get(
                     api_url,
