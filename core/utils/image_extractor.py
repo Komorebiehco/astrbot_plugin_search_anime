@@ -5,7 +5,7 @@ import aiohttp
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.message_components import Image, Reply
+from astrbot.api.message_components import Image, Node, Nodes, Reply
 from astrbot.core.star.star_tools import StarTools
 
 
@@ -21,14 +21,24 @@ async def extract_image_info(
     Returns:
         Tuple of (image_url, image_bytes).
     """
-    # 1. Direct url or media_id parameter
+    # 1. Direct URL, existing local path, or media_id parameter.
+    #
+    # A tool call can contain a stale local path after the platform has
+    # already cleaned its temporary attachment.  In that case keep looking
+    # for the live Image component on the event instead of returning a path
+    # that will force trace.moe's URL mode and fail with HTTP 400.
     if (
         url_param
         and url_param.strip()
         and url_param.strip().lower() not in ("none", "null")
     ):
         clean_url = url_param.strip()
-        if not (clean_url.isdigit() and not Path(clean_url).exists()):
+        if clean_url.startswith(("http://", "https://", "base64://")):
+            return clean_url, None
+        clean_path = clean_url[7:] if clean_url.startswith("file://") else clean_url
+        if Path(clean_path).is_file():
+            return clean_url, None
+        if clean_url.isdigit():
             return clean_url, None
 
     # 2. Extract from message_str text (e.g. /搜番 https://example.com/a.jpg)
@@ -39,9 +49,14 @@ async def extract_image_info(
         if w_clean.startswith(("http://", "https://", "file://", "base64://")):
             return w_clean, None
 
-    # 3. Extract from current message components
-    messages = event.get_messages()
-    for comp in messages or []:
+    # 3. Extract from the current message, including nested forwards/replies.
+    messages = list(event.get_messages() or [])
+    message_obj = getattr(event, "message_obj", None)
+    if message_obj and hasattr(message_obj, "message"):
+        messages.extend(message_obj.message or [])
+
+    while messages:
+        comp = messages.pop(0)
         if isinstance(comp, Image):
             img_target = (
                 getattr(comp, "url", None)
@@ -53,43 +68,11 @@ async def extract_image_info(
         elif isinstance(comp, Reply):
             reply_chain = getattr(comp, "chain", None) or getattr(comp, "message", None)
             if reply_chain:
-                for sub in reply_chain:
-                    if isinstance(sub, Image):
-                        img_target = (
-                            getattr(sub, "url", None)
-                            or getattr(sub, "file", None)
-                            or getattr(sub, "path", None)
-                        )
-                        if img_target:
-                            return img_target, None
-
-    # 4. Fallback: inspect raw message_obj if present
-    message_obj = getattr(event, "message_obj", None)
-    if message_obj and hasattr(message_obj, "message"):
-        raw_msgs = message_obj.message or []
-        for comp in raw_msgs:
-            if isinstance(comp, Image):
-                img_target = (
-                    getattr(comp, "url", None)
-                    or getattr(comp, "file", None)
-                    or getattr(comp, "path", None)
-                )
-                if img_target:
-                    return img_target, None
-            elif isinstance(comp, Reply):
-                reply_chain = getattr(comp, "chain", None) or getattr(
-                    comp, "message", None
-                )
-                if reply_chain:
-                    for sub in reply_chain:
-                        if isinstance(sub, Image):
-                            img_target = (
-                                getattr(sub, "url", None)
-                                or getattr(sub, "file", None)
-                                or getattr(sub, "path", None)
-                            )
-                            if img_target:
-                                return img_target, None
+                messages.extend(reply_chain)
+        elif isinstance(comp, Nodes):
+            messages.extend(comp.nodes)
+        elif isinstance(comp, Node):
+            messages.extend(comp.content)
 
     return None, None
 
