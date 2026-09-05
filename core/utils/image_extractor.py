@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -7,6 +8,32 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.message_components import Image, Node, Nodes, Reply
 from astrbot.core.star.star_tools import StarTools
+from astrbot.core.utils.media_utils import file_uri_to_path
+
+
+def _image_target(component: Image) -> str | None:
+    """Return the most reliable target exposed by an Image component.
+
+    Args:
+        component: Image message component.
+
+    Returns:
+        A local file target or remote URL, if present.
+    """
+    return (
+        getattr(component, "file", None)
+        or getattr(component, "path", None)
+        or getattr(component, "url", None)
+    )
+
+
+def _is_placeholder_url(value: str) -> bool:
+    """Return whether a URL is a documentation placeholder, not an image."""
+    try:
+        hostname = (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return False
+    return hostname in {"example.com", "www.example.com", "example.org", "example.net"}
 
 
 async def extract_image_info(
@@ -34,11 +61,32 @@ async def extract_image_info(
     ):
         clean_url = url_param.strip()
         if clean_url.startswith(("http://", "https://", "base64://")):
+            if _is_placeholder_url(clean_url):
+                clean_url = ""
+            else:
+                return clean_url, None
+        if clean_url.startswith("file:"):
+            clean_path = file_uri_to_path(clean_url)
+        else:
+            clean_path = clean_url
+        if clean_path and Path(clean_path).is_file():
             return clean_url, None
-        clean_path = clean_url[7:] if clean_url.startswith("file://") else clean_url
-        if Path(clean_path).is_file():
-            return clean_url, None
-        if clean_url.isdigit():
+        if (
+            clean_url
+            and (
+                clean_url.isdigit()
+                or not any(separator in clean_url for separator in ("/", "\\", ":"))
+            )
+            and Path(clean_url).suffix.lower()
+            not in {
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp",
+                ".gif",
+                ".bmp",
+            }
+        ):
             return clean_url, None
 
     # 2. Extract from message_str text (e.g. /搜番 https://example.com/a.jpg)
@@ -47,22 +95,20 @@ async def extract_image_info(
     for w in words:
         w_clean = w.strip()
         if w_clean.startswith(("http://", "https://", "file://", "base64://")):
+            if _is_placeholder_url(w_clean):
+                continue
             return w_clean, None
 
     # 3. Extract from the current message, including nested forwards/replies.
     messages = list(event.get_messages() or [])
     message_obj = getattr(event, "message_obj", None)
-    if message_obj and hasattr(message_obj, "message"):
+    if not messages and message_obj and hasattr(message_obj, "message"):
         messages.extend(message_obj.message or [])
 
     while messages:
         comp = messages.pop(0)
         if isinstance(comp, Image):
-            img_target = (
-                getattr(comp, "url", None)
-                or getattr(comp, "file", None)
-                or getattr(comp, "path", None)
-            )
+            img_target = _image_target(comp)
             if img_target:
                 return img_target, None
         elif isinstance(comp, Reply):
@@ -107,7 +153,7 @@ async def resolve_image_bytes(
             logger.error(f"[search_anime] Failed to decode base64 image_url: {e}")
             return None
 
-    clean_path = image_url[7:] if image_url.startswith("file://") else image_url
+    clean_path = file_uri_to_path(image_url)
 
     # 1. Direct file path check
     local_p = Path(clean_path)
