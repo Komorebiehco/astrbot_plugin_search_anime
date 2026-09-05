@@ -113,7 +113,14 @@ class SearchAnimePlugin(Star):
             ):
                 if chain:
                     if isinstance(chain, MessageChain):
-                        await event.send(chain)
+                        # A rich result is already the user-facing answer.  Put it
+                        # in the event result instead of sending it immediately;
+                        # AstrBot's local-tool executor recognizes this result and
+                        # ends the tool loop after delivery.  Sending here and then
+                        # returning a normal string made the model re-enter
+                        # search_image (and other tools), often reaching the global
+                        # step limit even though the lookup had succeeded.
+                        event.set_result(MessageEventResult(chain=chain.chain))
                     elif isinstance(chain, MessageEventResult):
                         event.set_result(chain)
                 summary_result = summary_str
@@ -122,7 +129,12 @@ class SearchAnimePlugin(Star):
                 f"[search_anime] LLM Tool search_image failed: {e}", exc_info=True
             )
             summary_result = f"以图搜图发生异常: {e}"
-        return summary_result
+        # In direct-card mode the event result is delivered by AstrBot and the
+        # runner stops cleanly.  LLM-only mode keeps the text summary so the model
+        # can compose a natural-language answer.
+        if bool(self.config.get("enable_llm_only_mode", False)):
+            return summary_result
+        return None
 
     # ==================== Slash Commands ====================
 
